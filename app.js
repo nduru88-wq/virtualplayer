@@ -7,7 +7,7 @@ const $ = id => document.getElementById(id);
 const loginView=$('loginView'), playerView=$('playerView'), loginForm=$('loginForm'), loginMsg=$('loginMsg');
 const audio=$('audio'), playlist=$('playlist'), status=$('status'), trackTitle=$('trackTitle');
 let tracks=[], visibleTracks=[], current=-1, currentPath=null, currentFolder='Alle numre', objectUrl=null;
-let deleteMode=false, shuffleMode=false, repeatMode=false;
+let deleteMode=false, downloadMode=false, folderDeleteMode=false, selectedFolders=new Set(), shuffleMode=false, repeatMode=false;
 
 function fmt(sec){ if(!Number.isFinite(sec)) return '0:00'; const m=Math.floor(sec/60),s=Math.floor(sec%60); return `${m}:${String(s).padStart(2,'0')}`; }
 function cleanName(name){ return name.replace(/\.mp3$/i,''); }
@@ -56,11 +56,69 @@ function renderFolders(){
   const options=['Alle numre',...folders];
   if(!options.includes(currentFolder)) currentFolder='Alle numre';
   options.forEach(name=>{
-    const b=document.createElement('button'); b.className='folder-btn'+(name===currentFolder?' active':'');
+    const b=document.createElement('button');
+    const selected=selectedFolders.has(name);
+    b.className='folder-btn'+(name===currentFolder && !folderDeleteMode?' active':'')+(selected?' selected-for-delete':'');
     const count=name==='Alle numre'?tracks.length:tracks.filter(t=>t.folder===name).length;
     b.textContent=`${name==='Alle numre'?'♫':'📁'} ${name} (${count})`;
-    b.onclick=()=>selectFolder(name,true); box.append(b);
+    if(folderDeleteMode){
+      if(name==='Alle numre'){ b.disabled=true; b.title='Alle numre kan ikke slettes som mappe'; }
+      else b.onclick=()=>toggleFolderSelection(name);
+    } else {
+      b.onclick=()=>selectFolder(name,true);
+    }
+    box.append(b);
   });
+  updateFolderDeleteButton();
+}
+
+function toggleFolderSelection(name){
+  if(selectedFolders.has(name)) selectedFolders.delete(name); else selectedFolders.add(name);
+  renderFolders();
+}
+
+function updateFolderDeleteButton(){
+  const b=$('deleteSelectedFoldersBtn');
+  if(!b) return;
+  b.textContent=`Slet valgte (${selectedFolders.size})`;
+  b.disabled=selectedFolders.size===0;
+}
+
+async function deleteSelectedFolders(){
+  const folders=[...selectedFolders];
+  if(!folders.length) return;
+  const files=tracks.filter(t=>folders.includes(t.folder));
+  if(!files.length){ selectedFolders.clear(); renderFolders(); return; }
+  const label=folders.length===1?`mappen “${folders[0]}”`:`${folders.length} mapper`;
+  if(!confirm(`Slet ${label}?\n\n${files.length} MP3-fil${files.length===1?'':'er'} slettes permanent fra Supabase.`)) return;
+
+  $('deleteSelectedFoldersBtn').disabled=true;
+  status.textContent='Sletter valgte mapper…';
+
+  // Supabase remove supports batches; keep comfortably below the API maximum.
+  const paths=files.map(t=>t.path);
+  for(let i=0;i<paths.length;i+=500){
+    const {error}=await sb.storage.from(BUCKET).remove(paths.slice(i,i+500));
+    if(error){
+      alert('Kunne ikke slette alle filer: '+error.message);
+      await loadTracks();
+      return;
+    }
+  }
+
+  if(currentPath && paths.includes(currentPath)){
+    audio.pause(); audio.removeAttribute('src');
+    trackTitle.textContent='Vælg et nummer'; $('nowFolder').textContent='';
+    currentPath=null; current=-1;
+  }
+  selectedFolders.clear();
+  folderDeleteMode=false;
+  $('folderDeleteModeBtn').classList.remove('active');
+  $('folderDeleteModeBtn').textContent='Slet mapper';
+  $('deleteSelectedFoldersBtn').classList.add('hidden');
+  currentFolder='Alle numre';
+  await loadTracks();
+  status.textContent=`${folders.length} mappe${folders.length===1?'':'r'} slettet fra Supabase.`;
 }
 
 function selectFolder(name, rerenderFolders=true){
@@ -74,11 +132,12 @@ function selectFolder(name, rerenderFolders=true){
 function render(){
   playlist.innerHTML='';
   visibleTracks.forEach((t,i)=>{
-    const row=document.createElement('div'); row.className='track'+(t.path===currentPath?' active':'')+(deleteMode?' delete-mode':'');
+    const row=document.createElement('div'); row.className='track'+(t.path===currentPath?' active':'')+(deleteMode?' delete-mode':'')+(downloadMode?' download-mode':'');
     const main=document.createElement('button'); main.className='track-main'; main.innerHTML=`<span class="num">${i+1}</span><span class="name"></span><span class="go">▶</span>`;
     main.querySelector('.name').textContent=cleanName(t.name); main.onclick=()=>playTrack(t);
+    const download=document.createElement('button'); download.className='download'; download.textContent='Hent'; download.onclick=()=>downloadTrack(t);
     const del=document.createElement('button'); del.className='delete'; del.textContent='Slet'; del.onclick=()=>deleteTrack(t);
-    row.append(main,del); playlist.append(row);
+    row.append(main,download,del); playlist.append(row);
   });
 }
 
@@ -89,6 +148,22 @@ async function playTrack(t){
   if(error){ status.textContent='Kunne ikke afspille: '+error.message; return; }
   if(objectUrl) URL.revokeObjectURL(objectUrl); objectUrl=URL.createObjectURL(data); audio.src=objectUrl;
   try{ await audio.play(); status.textContent=`${tracks.length} numre i alt`; }catch{ status.textContent='Tryk på afspil for at starte.'; }
+}
+
+
+async function downloadTrack(t){
+  status.textContent=`Henter ${cleanName(t.name)}…`;
+  const {data,error}=await sb.storage.from(BUCKET).download(t.path);
+  if(error){ status.textContent='Kunne ikke hente filen: '+error.message; return; }
+  const url=URL.createObjectURL(data);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=t.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),30000);
+  status.textContent='Filen er hentet. På iPhone findes den normalt i Arkiver → Downloads.';
 }
 
 async function deleteTrack(t){
@@ -117,7 +192,17 @@ $('prevBtn').onclick=()=>{ if(!visibleTracks.length)return; if(shuffleMode){play
 $('nextBtn').onclick=nextTrack;
 $('shuffleBtn').onclick=()=>{ shuffleMode=!shuffleMode; $('shuffleBtn').classList.toggle('active',shuffleMode); $('shuffleBtn').setAttribute('aria-pressed',shuffleMode); };
 $('repeatBtn').onclick=()=>{ repeatMode=!repeatMode; $('repeatBtn').classList.toggle('active',repeatMode); $('repeatBtn').setAttribute('aria-pressed',repeatMode); };
-$('deleteModeBtn').onclick=()=>{ deleteMode=!deleteMode; $('deleteModeBtn').classList.toggle('active',deleteMode); $('deleteModeBtn').textContent=deleteMode?'Færdig':'Slet sang'; render(); };
+$('folderDeleteModeBtn').onclick=()=>{
+  folderDeleteMode=!folderDeleteMode;
+  selectedFolders.clear();
+  $('folderDeleteModeBtn').classList.toggle('active',folderDeleteMode);
+  $('folderDeleteModeBtn').textContent=folderDeleteMode?'Annuller':'Slet mapper';
+  $('deleteSelectedFoldersBtn').classList.toggle('hidden',!folderDeleteMode);
+  renderFolders();
+};
+$('deleteSelectedFoldersBtn').onclick=deleteSelectedFolders;
+$('downloadModeBtn').onclick=()=>{ downloadMode=!downloadMode; if(downloadMode) deleteMode=false; $('downloadModeBtn').classList.toggle('active',downloadMode); $('downloadModeBtn').textContent=downloadMode?'Færdig':'Hent musik'; $('deleteModeBtn').classList.remove('active'); $('deleteModeBtn').textContent='Slet sang'; render(); };
+$('deleteModeBtn').onclick=()=>{ deleteMode=!deleteMode; if(deleteMode) downloadMode=false; $('deleteModeBtn').classList.toggle('active',deleteMode); $('deleteModeBtn').textContent=deleteMode?'Færdig':'Slet sang'; $('downloadModeBtn').classList.remove('active'); $('downloadModeBtn').textContent='Hent musik'; render(); };
 audio.addEventListener('play',()=>$('playBtn').textContent='❚❚'); audio.addEventListener('pause',()=>$('playBtn').textContent='▶');
 audio.addEventListener('ended',()=>{ if(repeatMode && currentPath){ audio.currentTime=0; audio.play(); } else nextTrack(); });
 audio.addEventListener('timeupdate',()=>{ $('currentTime').textContent=fmt(audio.currentTime); $('duration').textContent=fmt(audio.duration); $('seek').value=audio.duration?(audio.currentTime/audio.duration)*100:0; });

@@ -36,9 +36,13 @@
       </section>
 
       <section class="card library">
-        <div class="library-head"><div><span class="eyebrow">DIT BIBLIOTEK</span><h2 id="libraryTitle">Alle numre</h2></div><div class="library-actions"><button id="deleteModeBtn" class="secondary danger-toggle">Slet sang</button><button id="refreshBtn" class="secondary">↻ Opdater</button></div></div>
+        <div class="library-head"><div><span class="eyebrow">DIT BIBLIOTEK</span><h2 id="libraryTitle">Alle numre</h2></div><div class="library-actions"><button id="downloadModeBtn" class="secondary download-toggle">Hent musik</button><button id="deleteModeBtn" class="secondary danger-toggle">Slet sang</button><button id="refreshBtn" class="secondary">↻ Opdater</button></div></div>
         <p id="status" class="muted"></p>
         <div id="folders" class="folders"></div>
+        <div class="folder-delete-actions">
+          <button id="folderDeleteModeBtn" class="secondary danger-toggle">Slet mapper</button>
+          <button id="deleteSelectedFoldersBtn" class="secondary folder-delete-confirm hidden">Slet valgte (0)</button>
+        </div>
         <div id="playlist" class="playlist"></div>
       </section>
     </section>

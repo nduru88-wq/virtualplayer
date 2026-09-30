@@ -46,3 +46,24 @@ html,body{height:100%;overflow:hidden}
  .library-actions{gap:6px}
  .library-actions button{padding:9px 10px;font-size:12px}
 }
+
+/* Download mode */
+.download{background:transparent;color:#8eeeb1;font-size:12px}
+.download:hover{background:#183125}
+.track:not(.download-mode) .download{display:none}
+.track.download-mode{grid-template-columns:minmax(0,1fr) auto}
+.download-toggle.active{background:#1d4a31;color:#d9ffe7;border-color:#3f8f60}
+@media(max-width:520px){
+  .library-actions{flex-wrap:wrap;justify-content:flex-end}
+  .download{padding:9px 10px}
+}
+
+/* Delete multiple Supabase folders */
+.folder-delete-actions{display:flex;gap:8px;align-items:center;margin:0 0 8px}
+.folder-delete-confirm{background:#5a252b;color:#ffd9dd;border-color:#9a4650}
+.folder-delete-confirm:disabled{opacity:.45}
+.folder-btn.selected-for-delete{background:#5a252b;color:#ffd9dd;border-color:#b95b67}
+.folder-btn:disabled{opacity:.4;cursor:not-allowed}
+@media(max-width:520px){
+  .folder-delete-actions button{padding:9px 10px;font-size:12px}
+}
